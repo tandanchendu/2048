@@ -1,0 +1,179 @@
+// Copyright (c) 2017-2020 Xiamen Yaji Software Co., Ltd.
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: sprite-vs:vert
+      frag: sprite-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        alphaThreshold: { value: 0.5 }
+        startColor: { value: [0.0,0.0,0.0,0.0], editor: {type: color} }
+        endColor: { value: [0.0,0.0,0.0,1.0], editor: {type: color} }
+        iTime: { value: 0.0 }
+}%
+
+CCProgram sprite-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #if USE_LOCAL
+    #include <builtin/uniforms/cc-local>
+  #endif
+  #if SAMPLE_FROM_RT
+    #include <common/common-define>
+  #endif
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 color;
+  out vec2 uv0;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1);
+
+    #if USE_LOCAL
+      pos = cc_matWorld * pos;
+    #endif
+
+    #if USE_PIXEL_ALIGNMENT
+      pos = cc_matView * pos;
+      pos.xyz = floor(pos.xyz);
+      pos = cc_matProj * pos;
+    #else
+      pos = cc_matViewProj * pos;
+    #endif
+
+    uv0 = a_texCoord;
+    #if SAMPLE_FROM_RT
+      CC_HANDLE_RT_SAMPLE_FLIP(uv0);
+    #endif
+    color = a_color;
+
+    return pos;
+  }
+}%
+
+CCProgram sprite-fs %{
+  precision highp float;
+  #include <builtin/internal/embedded-alpha>
+  #include <builtin/internal/alpha-test>
+
+  in vec4 color;
+  float gTime = 0.;
+
+  #if USE_TEXTURE
+    in vec2 uv0;
+    #pragma builtin(local)
+    layout(set = 2, binding = 12) uniform sampler2D cc_spriteTexture;
+    uniform Constant {
+      vec4 startColor;
+      vec4 endColor;
+      float iTime;
+    };
+  #endif
+  // 回転行列
+  mat2 rot(float a) {
+    float c = cos(a), s = sin(a);
+    return mat2(c,s,-s,c);
+  }
+  float sdBox( vec3 p, vec3 b )
+  {
+    vec3 q = abs(p) - b;
+    return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+  }
+
+  float box(vec3 pos, float scale) {
+    pos *= scale;
+    float base = sdBox(pos, vec3(.4,.4,.1)) /1.5;
+    pos.xy *= 5.;
+    pos.y -= 3.5;
+    pos.xy *= rot(.75);
+    float result = -base;
+    return result;
+  }
+
+  float box_set(vec3 pos, float iTime) {
+    vec3 pos_origin = pos;
+    pos = pos_origin;
+    pos .y += sin(gTime * 0.4) * 2.5;
+    pos.xy *=   rot(.8);
+    float box1 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);
+    pos = pos_origin;
+    pos .y -=sin(gTime * 0.4) * 2.5;
+    pos.xy *=   rot(.8);
+    float box2 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);
+    pos = pos_origin;
+    pos .x +=sin(gTime * 0.4) * 2.5;
+    pos.xy *=   rot(.8);
+    float box3 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);	
+    pos = pos_origin;
+    pos .x -=sin(gTime * 0.4) * 2.5;
+    pos.xy *=   rot(.8);
+    float box4 = box(pos,2. - abs(sin(gTime * 0.4)) * 1.5);	
+    pos = pos_origin;
+    pos.xy *=   rot(.8);
+    float box5 = box(pos,.5) * 6.;	
+    pos = pos_origin;
+    float box6 = box(pos,.5) * 6.;	
+    float result = max(max(max(max(max(box1,box2),box3),box4),box5),box6);
+    return result;
+  }
+
+  float map(vec3 pos, float iTime) {
+    vec3 pos_origin = pos;
+    float box_set1 = box_set(pos, iTime);
+
+    return box_set1;
+  }
+  vec4 frag () {
+    vec4 o = vec4(1, 1, 1, 1);
+
+    #if USE_TEXTURE
+      o *= CCSampleWithAlphaSeparated(cc_spriteTexture, uv0);
+      #if IS_GRAY
+        float gray  = 0.2126 * o.r + 0.7152 * o.g + 0.0722 * o.b;
+        o.r = o.g = o.b = gray;
+      #endif
+
+      float y = sin(gl_FragCoord.y);
+      o = mix(startColor,endColor,(y+1.0)/2.0);
+    #endif
+	  
+    o *= color;
+    ALPHA_TEST(o);
+
+    vec2 iResolution = vec2(360.0,640.0);
+    vec2 p = (gl_FragCoord.xy * 2. - iResolution.xy) / min(iResolution.x, iResolution.y);
+    vec3 ro = vec3(0., -0.2 ,iTime * 4.);
+    vec3 ray = normalize(vec3(p, 1.5));
+    ray.xy = ray.xy * rot(sin(iTime * .03) * 5.);
+    ray.yz = ray.yz * rot(sin(iTime * .05) * .2);
+    float t = 0.1;
+    vec3 col = vec3(0.);
+    float ac = 0.0;
+    for (int i = 0; i < 10; i++){
+      vec3 pos = ro + ray * t;
+      pos = mod(pos-2., 4.) -2.;
+      gTime = iTime -float(i) * 0.01;      
+      float d = map(pos, iTime);
+      d = max(abs(d), 0.01);
+      ac += exp(-d*23.);
+      t += d* 0.55;
+    }
+    col = vec3(ac * 0.02);
+    col +=vec3(0.,0.2 * abs(sin(iTime)),0.5 + sin(iTime) * 0.2);
+    o = vec4(col ,1.0 - t * (0.02 + 0.02 * sin (iTime)));
+
+    return o;
+  }
+}%
