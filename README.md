@@ -1,4 +1,6 @@
-# 2048ĞİÏĞÓÎÏ·
-¿ª·¢»·¾³
-ÒıÇæ°æ±¾£ºCocos Creator 3.8.0
-±à³ÌÓïÑÔ£ºTypeScript
+# 2048ä¼‘é—²æ¸¸æˆ
+å¼€å‘ç¯å¢ƒ
+å¼•æ“ç‰ˆæœ¬ï¼šCocos Creator 3.8.0
+ç¼–ç¨‹è¯­è¨€ï¼šTypeScript
+ä½“éªŒé“¾æ¥
+https://tandanchendu.github.io/2048/build/web-desktop
